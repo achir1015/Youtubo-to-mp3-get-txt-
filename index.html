@@ -1,0 +1,1549 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YT 語音轉文字（Whisper + GPT）</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d0d0d; color: #e0e0e0;
+      min-height: 100vh; padding: 24px 16px;
+    }
+    .container { max-width: 820px; margin: 0 auto; }
+
+    header { text-align: center; margin-bottom: 28px; }
+    header h1 {
+      font-size: 1.65rem; font-weight: 700; color: #fff;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    .yt-badge {
+      background:#ff0000; color:#fff; font-size:.65em;
+      padding:3px 8px; border-radius:5px; font-weight:900;
+    }
+    header p { color:#888; margin-top:5px; font-size:.88rem; }
+
+    .card {
+      background:#181818; border:1px solid #2a2a2a;
+      border-radius:12px; padding:22px; margin-bottom:18px;
+    }
+    .card-title {
+      font-size:.78rem; font-weight:700; color:#666; letter-spacing:1.5px;
+      text-transform:uppercase; margin-bottom:14px;
+    }
+
+    label { display:block; font-size:.8rem; color:#888; margin-bottom:5px; }
+
+    input[type="text"], input[type="password"], select, textarea {
+      width:100%; background:#0d0d0d; border:1px solid #2e2e2e;
+      border-radius:8px; color:#e0e0e0; font-size:.9rem;
+      padding:9px 13px; outline:none; transition:border-color .2s;
+    }
+    input:focus, select:focus, textarea:focus { border-color:#ff3333; }
+    select option { background:#181818; }
+    textarea { font-family:'Consolas','Courier New',monospace; font-size:.8rem;
+               line-height:1.65; resize:vertical; min-height:240px; }
+
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+    @media(max-width:600px){ .grid2,.grid3{ grid-template-columns:1fr; } }
+
+    .row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+    .row .grow { flex:1; min-width:200px; }
+
+    button {
+      border:none; border-radius:8px; cursor:pointer;
+      font-size:.88rem; font-weight:600; padding:9px 18px;
+      transition:filter .15s, transform .1s; white-space:nowrap;
+    }
+    button:active { transform:scale(.97); }
+    button:disabled { opacity:.35; cursor:not-allowed; transform:none; }
+    .btn-red   { background:#cc1111; color:#fff; }
+    .btn-red:hover:not(:disabled)   { filter:brightness(1.15); }
+    .btn-dark  { background:#252525; color:#ddd; border:1px solid #333; }
+    .btn-dark:hover:not(:disabled)  { background:#2e2e2e; }
+    .btn-green { background:#1a7a3e; color:#fff; }
+    .btn-green:hover:not(:disabled) { filter:brightness(1.15); }
+    .btn-blue  { background:#1a4f7a; color:#fff; }
+    .btn-blue:hover:not(:disabled)  { filter:brightness(1.15); }
+    .btn-purple { background:#4a1f7a; color:#fff; }
+    .btn-purple:hover:not(:disabled) { filter:brightness(1.15); }
+
+    .badge { font-size:.68rem; background:#2a2a2a; color:#888;
+             padding:2px 7px; border-radius:4px; margin-left:5px; }
+
+    /* File drop zone */
+    .dropzone {
+      border:2px dashed #333; border-radius:10px; padding:24px;
+      text-align:center; cursor:pointer; transition:border-color .2s, background .2s;
+      position:relative;
+    }
+    .dropzone:hover, .dropzone.drag { border-color:#cc1111; background:#1a0a0a; }
+    .dropzone input[type="file"] {
+      position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;
+    }
+    .dropzone p { color:#666; font-size:.88rem; pointer-events:none; }
+    .dropzone .file-name { color:#cc6666; font-size:.84rem; margin-top:6px; }
+
+    /* Toggle */
+    .toggle-row { display:flex; align-items:center; gap:10px; margin-top:12px; }
+    .toggle-row label { margin:0; color:#aaa; font-size:.84rem; cursor:pointer; }
+    .toggle {
+      position:relative; width:38px; height:20px; flex-shrink:0;
+    }
+    .toggle input { opacity:0; width:0; height:0; }
+    .slider {
+      position:absolute; inset:0; background:#333; border-radius:20px;
+      cursor:pointer; transition:background .2s;
+    }
+    .slider::before {
+      content:''; position:absolute; width:14px; height:14px;
+      left:3px; top:3px; background:#888; border-radius:50%; transition:.2s;
+    }
+    .toggle input:checked + .slider { background:#cc1111; }
+    .toggle input:checked + .slider::before { transform:translateX(18px); background:#fff; }
+
+    /* Progress log */
+    .log {
+      background:#0a0a0a; border:1px solid #222; border-radius:8px;
+      font-family:monospace; font-size:.76rem; padding:12px;
+      max-height:160px; overflow-y:auto; display:none; margin-top:12px;
+    }
+    .log .ok   { color:#40c870; }
+    .log .fail { color:#e05050; }
+    .log .run  { color:#5090d0; }
+    .log .info { color:#888; }
+
+    /* Step indicators */
+    .steps { display:flex; gap:0; margin-bottom:16px; }
+    .step {
+      flex:1; text-align:center; padding:8px 4px; font-size:.75rem;
+      color:#444; border-bottom:2px solid #222; transition:all .3s;
+    }
+    .step.active { color:#ff5555; border-color:#ff5555; }
+    .step.done   { color:#40c870; border-color:#40c870; }
+
+    /* Tabs */
+    .tabs { display:flex; gap:8px; margin-bottom:10px; }
+    .tab {
+      background:#1e1e1e; color:#777; border:1px solid #2e2e2e;
+      border-radius:6px; padding:5px 14px; font-size:.8rem;
+      font-weight:600; cursor:pointer; transition:all .2s;
+    }
+    .tab.active { background:#cc1111; color:#fff; border-color:#cc1111; }
+
+    .dl-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+
+    /* Status messages */
+    .msg { border-radius:8px; padding:10px 13px; font-size:.84rem;
+           line-height:1.5; margin-top:12px; display:none; }
+    .msg.info    { background:#121e2a; border:1px solid #1e4070; color:#6abaff; display:block; }
+    .msg.success { background:#0a1e10; border:1px solid #1a5030; color:#50d880; display:block; }
+    .msg.error   { background:#1e0a0a; border:1px solid #501818; color:#f07070; display:block; }
+    .msg.warn    { background:#1e1a08; border:1px solid #504018; color:#d8c050; display:block; }
+
+    .spinner {
+      display:inline-block; width:13px; height:13px;
+      border:2px solid rgba(255,255,255,.2); border-top-color:#fff;
+      border-radius:50%; animation:spin .7s linear infinite;
+      vertical-align:middle; margin-right:6px;
+    }
+    @keyframes spin { to{ transform:rotate(360deg); } }
+
+    .tip {
+      background:#141408; border:1px solid #303010;
+      border-radius:8px; padding:12px 14px;
+      font-size:.79rem; color:#a0a040; line-height:1.65;
+    }
+    .tip b { color:#d0d050; }
+
+    #resultSection { display:none; }
+    .char-count { font-size:.74rem; color:#555; margin-top:4px; text-align:right; }
+
+    .key-row { display:flex; gap:8px; align-items:flex-end; }
+    .key-row .grow { flex:1; }
+
+    /* Progress bar */
+    .progress-wrap { background:#1a1a1a; border-radius:6px; height:6px; margin-top:10px; overflow:hidden; }
+    .progress-bar  { height:100%; background:#cc1111; border-radius:6px; transition:width .4s; width:0%; }
+
+    a { color:#6abaff; }
+
+    /* ── 音訊佇列 ── */
+    .queue-item {
+      display:flex; align-items:center; gap:10px;
+      background:#111; border:1px solid #2a2a2a;
+      border-radius:8px; padding:8px 10px; margin-bottom:8px;
+    }
+    .q-thumb {
+      width:60px; height:34px; border-radius:4px;
+      object-fit:cover; background:#222; flex-shrink:0;
+    }
+    .q-info { flex:1; min-width:0; }
+    .q-name { font-size:.82rem; color:#ddd; white-space:nowrap;
+              overflow:hidden; text-overflow:ellipsis; }
+    .q-meta { font-size:.74rem; color:#555; margin-top:2px; }
+    .q-badge {
+      font-size:.72rem; font-weight:700; border-radius:5px;
+      padding:2px 9px; white-space:nowrap; flex-shrink:0;
+    }
+    .q-badge.ready       { background:#1a2a1a; color:#50b870; border:1px solid #2a5a2a; }
+    .q-badge.downloading { background:#1a1a2a; color:#6090e0; border:1px solid #2a3a6a; }
+    .q-badge.transcribing{ background:#2a1a00; color:#e09030; border:1px solid #5a3a00; }
+    .q-badge.done        { background:#0a2a0a; color:#30c060; border:1px solid #1a6a1a; }
+    .q-badge.error       { background:#2a0a0a; color:#e05050; border:1px solid #6a1a1a; }
+    .q-remove {
+      background:none; border:1px solid #333; color:#666;
+      border-radius:5px; padding:3px 8px; font-size:.78rem;
+      cursor:pointer; flex-shrink:0;
+    }
+    .q-remove:hover { border-color:#cc3333; color:#cc3333; }
+    .queue-header {
+      display:flex; justify-content:space-between; align-items:center;
+      margin-bottom:8px;
+    }
+    .queue-header span { font-size:.8rem; color:#666; }
+
+    .svc-tab {
+      background:#1e1e1e; color:#888; border:1px solid #333;
+      border-radius:8px; padding:7px 18px; font-size:.88rem;
+      font-weight:600; cursor:pointer; transition:all .2s;
+    }
+    .svc-tab.active { background:#cc1111; color:#fff; border-color:#cc1111; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1><span class="yt-badge">YT</span> 語音轉文字工具</h1>
+    <p>使用 OpenAI Whisper 轉錄 YouTube 影片 → 可選 GPT 整理標點 → 下載 SRT / TXT</p>
+  </header>
+
+  <!-- ① API Key & 設定 -->
+  <div class="card">
+    <div class="card-title">① API 設定</div>
+
+    <!-- 服務提供商切換 -->
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <button id="tabOpenAI" class="svc-tab active" onclick="switchSvc('openai')">OpenAI</button>
+      <button id="tabGroq"   class="svc-tab"        onclick="switchSvc('groq')">
+        Groq（免費 ✓ 推薦）
+      </button>
+    </div>
+
+    <!-- OpenAI 設定 -->
+    <div id="svcOpenAI">
+      <div class="grid3">
+        <div>
+          <label>OpenAI API Key</label>
+          <div class="key-row">
+            <input class="grow" type="password" id="apiKey" placeholder="sk-..." />
+            <button class="btn-dark" onclick="toggleKey('apiKey')">👁</button>
+          </div>
+        </div>
+        <div>
+          <label>轉錄模型</label>
+          <select id="whisperModel" onchange="onModelChange()">
+            <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+            <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
+            <option value="whisper-1">whisper-1</option>
+          </select>
+        </div>
+        <div>
+          <label>整理用 GPT 模型</label>
+          <select id="gptModel">
+            <option value="gpt-4o-mini">gpt-4o-mini ✓推薦</option>
+            <option value="gpt-4o">gpt-4o（最高品質）</option>
+            <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+          </select>
+        </div>
+      </div>
+      <div id="modelHint" style="display:none; margin-top:10px; padding:8px 12px; background:#1e1800; border:1px solid #504010; border-radius:8px; font-size:.8rem; color:#d0a030;"></div>
+    </div>
+
+    <!-- Groq 設定 -->
+    <div id="svcGroq" style="display:none;">
+      <div style="background:#0a1a10; border:1px solid #1a5030; border-radius:8px; padding:10px 13px; font-size:.82rem; color:#50c878; margin-bottom:12px;">
+        🎉 <b>Groq 完全免費</b>，使用 Whisper large-v3，速度快 5-10 倍。
+        免費申請：<a href="https://console.groq.com" target="_blank" style="color:#60e890;">console.groq.com</a> → API Keys → Create API Key
+      </div>
+      <div class="grid3">
+        <div>
+          <label>Groq API Key</label>
+          <div class="key-row">
+            <input class="grow" type="password" id="groqKey" placeholder="gsk_..." />
+            <button class="btn-dark" onclick="toggleKey('groqKey')">👁</button>
+          </div>
+        </div>
+        <div>
+          <label>Groq 轉錄模型</label>
+          <select id="groqModel">
+            <option value="whisper-large-v3-turbo">whisper-large-v3-turbo ✓推薦</option>
+            <option value="whisper-large-v3">whisper-large-v3（最高品質）</option>
+            <option value="distil-whisper-large-v3-en">distil-whisper（英文專用）</option>
+          </select>
+        </div>
+        <div>
+          <label>整理用模型</label>
+          <select id="gptModelGroq" onchange="updateGroqGPTRow()">
+            <option value="groq:llama-3.3-70b-versatile">Groq LLaMA 3.3 70B ✓推薦（免費）</option>
+            <option value="groq:llama-3.1-8b-instant">Groq LLaMA 3.1 8B（更快）</option>
+            <option value="gpt-4o-mini">OpenAI gpt-4o-mini</option>
+            <option value="gpt-4o">OpenAI gpt-4o</option>
+            <option value="">不整理（只轉錄）</option>
+          </select>
+        </div>
+      </div>
+      <div id="groqGPTKeyRow" style="margin-top:10px; display:none;">
+        <label>OpenAI API Key（GPT 整理用，Groq 沒有 GPT）</label>
+        <div class="key-row">
+          <input class="grow" type="password" id="apiKeyForGPT" placeholder="sk-... （留空則跳過整理）" />
+          <button class="btn-dark" onclick="toggleKey('apiKeyForGPT')">👁</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toggle-row" style="margin-top:12px;">
+      <label class="toggle"><input type="checkbox" id="saveKey" onchange="onSaveKey()" /><span class="slider"></span></label>
+      <label for="saveKey">記住 API Key 於本機</label>
+    </div>
+  </div>
+
+  <!-- ② 音訊來源 -->
+  <div class="card">
+    <div class="card-title">② 選擇音訊來源</div>
+
+    <!-- NAS 後端設定 -->
+    <div style="background:#1a2a1a; border:1px solid #2d5a2d; border-radius:8px; padding:10px 12px; margin-bottom:10px; font-size:.82rem;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span style="color:#5cba5c; font-weight:bold;">🖥 NAS 後端（選填）</span>
+        <span style="color:#888;">設定後優先使用自架後端下載，最可靠</span>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="nasBackendUrl" type="text"
+          style="flex:1; font-size:.82rem; padding:5px 8px; background:#111; border:1px solid #2d5a2d; color:#ccc; border-radius:5px;"
+          placeholder="例：https://ipmos.ngrok.app/ytmp3"
+          oninput="localStorage.setItem('nasBackendUrl', this.value.trim())"
+        />
+        <button onclick="testNasBackend()" style="padding:4px 10px; background:#2d5a2d; color:#aed6a0; border:none; border-radius:5px; cursor:pointer; white-space:nowrap; font-size:.8rem;">測試連線</button>
+      </div>
+      <div id="nasStatus" style="margin-top:5px; font-size:.78rem; color:#888;"></div>
+    </div>
+
+    <!-- 多行 YouTube URL -->
+    <label>YouTube 網址（一行一個，可多個）</label>
+    <div style="display:flex; gap:8px; align-items:flex-start;">
+      <textarea id="ytUrls" rows="3"
+        style="flex:1; resize:vertical; min-height:72px; font-size:.85rem;"
+        placeholder="https://www.youtube.com/watch?v=xxxxx&#10;https://youtu.be/yyyyy&#10;https://www.youtube.com/watch?v=zzzzz"></textarea>
+      <button class="btn-red" id="btnGetAudio" onclick="getAudioFromUrls()"
+        style="align-self:stretch; padding:0 18px; min-width:100px;">
+        🔊 取得音訊
+      </button>
+    </div>
+
+    <div style="text-align:center; color:#444; font-size:.8rem; margin:12px 0;">— 或直接拖放 / 上傳音訊檔 —</div>
+
+    <!-- 拖放區 -->
+    <div class="dropzone" id="dropzone" ondragover="onDrag(event,true)"
+         ondragleave="onDrag(event,false)" ondrop="onDrop(event)">
+      <input type="file" accept="audio/*,video/*,.mp3,.mp4,.wav,.m4a,.ogg,.webm,.flac"
+             id="fileInput" multiple onchange="onFileSelect()" />
+      <p>🎵 拖放音訊 / 影片檔案到這裡（可多個）<br>
+         <span style="font-size:.76rem;">支援：mp3, mp4, wav, m4a, ogg, webm, flac</span>
+      </p>
+    </div>
+
+    <!-- 音訊佇列清單 -->
+    <div id="audioQueueList" style="display:none; margin-top:14px;"></div>
+
+    <div id="audioStatus" class="msg"></div>
+    <div class="log" id="audioLog" style="display:none; max-height:100px;"></div>
+    <div class="progress-wrap" id="audioProgress" style="display:none;">
+      <div class="progress-bar" id="audioBar"></div>
+    </div>
+  </div>
+
+  <!-- ③ 轉錄設定 -->
+  <div class="card">
+    <div class="card-title">③ 轉錄設定</div>
+    <div class="grid3">
+      <div>
+        <label>Whisper 語言</label>
+        <select id="whisperLang">
+          <option value="">自動偵測</option>
+          <option value="zh" selected>中文 zh</option>
+          <option value="en">英文 en</option>
+          <option value="ja">日文 ja</option>
+          <option value="ko">韓文 ko</option>
+          <option value="fr">法文 fr</option>
+          <option value="de">德文 de</option>
+          <option value="es">西班牙文 es</option>
+          <option value="pt">葡萄牙文 pt</option>
+          <option value="ru">俄文 ru</option>
+          <option value="ar">阿拉伯文 ar</option>
+          <option value="th">泰文 th</option>
+          <option value="vi">越南文 vi</option>
+        </select>
+      </div>
+      <div>
+        <label>輸出文字類型</label>
+        <select id="outputLang">
+          <option value="">維持原文</option>
+          <option value="繁體中文" selected>繁體中文</option>
+          <option value="簡體中文">簡體中文</option>
+          <option value="英文">英文</option>
+          <option value="日文">日文</option>
+        </select>
+      </div>
+      <div>
+        <label>SRT 每段最長（秒）</label>
+        <select id="maxSegSec">
+          <option value="0">不限制</option>
+          <option value="5" selected>5 秒</option>
+          <option value="10">10 秒</option>
+        </select>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle"><input type="checkbox" id="doGPT" checked /><span class="slider"></span></label>
+      <label for="doGPT">轉錄後用 GPT 整理標點符號、斷行分段（繁體中文輸出）</label>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle"><input type="checkbox" id="doChunk" checked /><span class="slider"></span></label>
+      <label for="doChunk">自動分段處理（支援超過 25MB 的長影片）</label>
+    </div>
+
+    <div class="actions" style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="btn-red" id="btnTranscribe" onclick="startTranscribe()" style="font-size:1rem; padding:11px 24px;">
+        ▶ 開始轉錄
+      </button>
+      <button class="btn-dark" onclick="clearAll()">✕ 清除全部</button>
+    </div>
+    <div id="transcribeStatus" class="msg"></div>
+    <div class="progress-wrap" id="transcribeProgress" style="display:none;">
+      <div class="progress-bar" id="transcribeBar"></div>
+    </div>
+    <div class="log" id="mainLog"></div>
+  </div>
+
+  <!-- ④ 結果 -->
+  <div class="card" id="resultSection">
+    <div class="card-title">④ 轉錄結果</div>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('srt')">SRT（含時間軸）</button>
+      <button class="tab"        onclick="switchTab('gpt')">整理後文章</button>
+      <button class="tab"        onclick="switchTab('raw')">原始逐字稿</button>
+    </div>
+    <textarea id="resultArea" readonly></textarea>
+    <div class="char-count" id="charCount"></div>
+    <div class="dl-row">
+      <button class="btn-green"  onclick="dlCur('txt')">⬇ 下載 TXT<span class="badge">.txt</span></button>
+      <button class="btn-blue"   onclick="dlCur('srt')">⬇ 下載 SRT<span class="badge">.srt</span></button>
+      <button class="btn-purple" onclick="copyResult()">📋 複製</button>
+    </div>
+  </div>
+
+  <div class="tip">
+    <b>流程說明：</b>
+    網頁嘗試透過 <a href="https://cobalt.tools" target="_blank">cobalt.tools</a>（開源）自動下載 YouTube 音訊；
+    若失敗請直接上傳音訊檔（可用 <a href="https://yt-dlp.org" target="_blank">yt-dlp</a> 或任何 YouTube 下載工具）。
+    音訊送至 OpenAI <b>Whisper API</b> 轉錄，再由 <b>GPT</b> 加標點符號整理，最後可下載 SRT / TXT。<br>
+    API Key 僅儲存在您的瀏覽器，不會傳送給本工具作者。
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// 全域狀態
+// ─────────────────────────────────────────────────────────────────────────────
+// audioQueue 每筆：{ id, vid, blob, name, sizeMB, status }
+let audioQueue = [];
+let srtResult  = '';
+let rawResult  = '';
+let gptResult  = '';
+let curTab     = 'srt';
+let currentSvc = 'openai';
+
+// ── 佇列管理 ────────────────────────────────────────────────────────────────
+function addToQueue(blob, name, vid = '') {
+  const id = Date.now() + Math.random();
+  audioQueue.push({ id, vid, blob, name, sizeMB: (blob.size/1024/1024).toFixed(1), status: 'ready' });
+  renderQueue();
+}
+
+function removeFromQueue(id) {
+  audioQueue = audioQueue.filter(it => it.id !== id);
+  renderQueue();
+}
+
+function setQueueStatus(id, status) {
+  const it = audioQueue.find(i => i.id === id);
+  if (it) { it.status = status; renderQueue(); }
+}
+
+const Q_LABEL = { ready:'就緒', downloading:'下載中', transcribing:'轉錄中', done:'完成 ✓', error:'失敗 ✗' };
+
+function renderQueue() {
+  const el = document.getElementById('audioQueueList');
+  if (!audioQueue.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="queue-header">
+      <span>音訊佇列（${audioQueue.length} 個）</span>
+      <button class="q-remove" onclick="clearQueue()">清除全部</button>
+    </div>`;
+  audioQueue.forEach(it => {
+    const thumb = it.vid
+      ? `<img class="q-thumb" src="https://img.youtube.com/vi/${it.vid}/mqdefault.jpg" onerror="this.style.display='none'">`
+      : `<div class="q-thumb" style="display:flex;align-items:center;justify-content:center;font-size:1.2rem;">🎵</div>`;
+    const div = document.createElement('div');
+    div.className = 'queue-item';
+    div.innerHTML = `
+      ${thumb}
+      <div class="q-info">
+        <div class="q-name">${it.name}</div>
+        <div class="q-meta">${it.sizeMB} MB${it.vid ? ' · ' + it.vid : ''}</div>
+      </div>
+      <span class="q-badge ${it.status}">${Q_LABEL[it.status]||it.status}</span>
+      <button class="q-remove" onclick="removeFromQueue(${it.id})" ${it.status==='transcribing'?'disabled':''}>✕</button>`;
+    el.appendChild(div);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 初始化
+// ─────────────────────────────────────────────────────────────────────────────
+(function init() {
+  const oKey = localStorage.getItem('openai_api_key');
+  const gKey = localStorage.getItem('groq_api_key');
+  if (oKey) document.getElementById('apiKey').value = oKey;
+  if (gKey) document.getElementById('groqKey').value = gKey;
+  const oKey2 = localStorage.getItem('openai_for_gpt_key');
+  if (oKey2) { try { document.getElementById('apiKeyForGPT').value = oKey2; } catch(_){} }
+  if (oKey || gKey) document.getElementById('saveKey').checked = true;
+  if (gKey && !oKey) switchSvc('groq');
+  // 載入 NAS 後端 URL
+  const nasUrl = localStorage.getItem('nasBackendUrl');
+  if (nasUrl) document.getElementById('nasBackendUrl').value = nasUrl;
+})();
+
+function switchSvc(svc) {
+  currentSvc = svc;
+  document.getElementById('svcOpenAI').style.display = svc === 'openai' ? '' : 'none';
+  document.getElementById('svcGroq').style.display   = svc === 'groq'   ? '' : 'none';
+  document.getElementById('tabOpenAI').classList.toggle('active', svc === 'openai');
+  document.getElementById('tabGroq').classList.toggle('active',   svc === 'groq');
+  // Show OpenAI GPT key row only when Groq is selected and GPT is enabled
+  updateGroqGPTRow();
+}
+
+function updateGroqGPTRow() {
+  if (currentSvc !== 'groq') return;
+  const val = document.getElementById('gptModelGroq').value;
+  const needsOpenAIKey = document.getElementById('doGPT').checked &&
+                         val !== '' && !val.startsWith('groq:');
+  document.getElementById('groqGPTKeyRow').style.display = needsOpenAIKey ? '' : 'none';
+}
+
+function onSaveKey() {
+  const save = document.getElementById('saveKey').checked;
+  const oKey  = document.getElementById('apiKey').value.trim();
+  const gKey  = document.getElementById('groqKey').value.trim();
+  const oKey2 = document.getElementById('apiKeyForGPT')?.value?.trim() || '';
+  if (save) {
+    if (oKey)  localStorage.setItem('openai_api_key', oKey);
+    if (gKey)  localStorage.setItem('groq_api_key', gKey);
+    if (oKey2) localStorage.setItem('openai_for_gpt_key', oKey2);
+  } else {
+    ['openai_api_key','groq_api_key','openai_for_gpt_key'].forEach(k => localStorage.removeItem(k));
+  }
+}
+
+function toggleKey(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 工具函式
+// ─────────────────────────────────────────────────────────────────────────────
+function getApiKey() {
+  if (currentSvc === 'groq') {
+    const k = document.getElementById('groqKey').value.trim();
+    if (!k) throw new Error('請先填入 Groq API Key（免費申請：console.groq.com）');
+    if (document.getElementById('saveKey').checked) localStorage.setItem('groq_api_key', k);
+    return k;
+  }
+  const k = document.getElementById('apiKey').value.trim();
+  if (!k) throw new Error('請先填入 OpenAI API Key');
+  if (document.getElementById('saveKey').checked) localStorage.setItem('openai_api_key', k);
+  return k;
+}
+
+function getGPTKey() {
+  if (currentSvc === 'groq') {
+    return document.getElementById('apiKeyForGPT')?.value?.trim() || '';
+  }
+  return document.getElementById('apiKey').value.trim();
+}
+
+function getGPTModel() {
+  return currentSvc === 'groq'
+    ? document.getElementById('gptModelGroq').value
+    : document.getElementById('gptModel').value;
+}
+
+function extractYTId(url) {
+  url = (url||'').trim();
+  for (const p of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /shorts\/([A-Za-z0-9_-]{11})/,
+  ]) { const m = url.match(p); if (m) return m[1]; }
+  return null;
+}
+
+function setMsg(id, cls, html) {
+  const el = document.getElementById(id);
+  el.className = 'msg ' + cls;
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+function hideMsg(id) { document.getElementById(id).style.display = 'none'; }
+
+function addLog(msg, cls='info') {
+  const el = document.getElementById('mainLog');
+  el.style.display = 'block';
+  const ts = new Date().toLocaleTimeString('zh-TW');
+  el.innerHTML += `<div class="${cls}">[${ts}] ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function setProgress(barId, wrapId, pct) {
+  document.getElementById(wrapId).style.display = pct > 0 ? 'block' : 'none';
+  document.getElementById(barId).style.width = pct + '%';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 檔案上傳 / 拖放
+// ─────────────────────────────────────────────────────────────────────────────
+function onDrag(e, entering) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.toggle('drag', entering);
+}
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('drag');
+  [...(e.dataTransfer?.files||[])].forEach(processFile);
+}
+function onFileSelect() {
+  [...(document.getElementById('fileInput').files||[])].forEach(processFile);
+}
+
+function processFile(file) {
+  const name = file.name.replace(/\.[^.]+$/, '');
+  addToQueue(file, name, '');
+  const big = file.size > 25*1024*1024;
+  setMsg('audioStatus', big ? 'warn' : 'success',
+    big ? `⚠ ${file.name}（${(file.size/1024/1024).toFixed(1)} MB）超過 25MB，將自動分段`
+        : `✓ 已加入佇列：${file.name}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 透過 Cobalt 批次取得 YouTube 音訊
+// ─────────────────────────────────────────────────────────────────────────────
+// Invidious 公開節點（提供 YouTube 串流 API，已處理 n-parameter 解密）
+const INVIDIOUS_NODES = [
+  'https://invidious.io.lol',
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de',
+  'https://invidious.privacyredirect.com',
+  'https://yt.drgnz.club',
+  'https://iv.datura.network',
+  'https://invidious.perennialte.ch',
+  'https://vid.puffyan.us',
+  'https://invidious.lunar.icu',
+  'https://invidious.tiekoetter.com',
+];
+
+// CORS Proxy 清單（用於取得 YouTube 頁面，備用）
+const PAGE_PROXIES = [
+  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+  u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+];
+
+// Cobalt 備援節點
+const COBALT_INSTANCES = [
+  { base: 'https://api.cobalt.tools',        fmt: 'new' },
+  { base: 'https://cobalt.api.wanderer.moe', fmt: 'new' },
+  { base: 'https://cobalt.imput.net',        fmt: 'new' },
+  { base: 'https://dwnld.nichlov.com',       fmt: 'new' },
+];
+
+// 簡易 log 顯示在音訊區塊內
+let audioLog = [];
+function alog(msg, cls='info') {
+  audioLog.push({ msg, cls });
+  const el = document.getElementById('audioLog');
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML = audioLog.slice(-8).map(l =>
+    `<div class="${l.cls}">${l.msg}</div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+async function getAudioFromUrls() {
+  const raw = document.getElementById('ytUrls').value.trim();
+  if (!raw) { setMsg('audioStatus','error','請輸入 YouTube 網址'); return; }
+
+  const lines = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  const vids  = lines.map(u => ({ url: u, vid: extractYTId(u) })).filter(v => v.vid);
+  const bad   = lines.length - vids.length;
+  if (!vids.length) { setMsg('audioStatus','error','沒有找到有效的 YouTube 網址'); return; }
+
+  audioLog = [];
+  document.getElementById('btnGetAudio').disabled = true;
+  setMsg('audioStatus','info',
+    `<span class="spinner"></span>準備下載 ${vids.length} 個影片音訊${bad ? `（${bad} 個網址無效已略過）` : ''}...`);
+
+  let ok = 0, fail = 0;
+  for (let i = 0; i < vids.length; i++) {
+    const { vid } = vids[i];
+    setMsg('audioStatus','info',
+      `<span class="spinner"></span>[${i+1}/${vids.length}] 下載 ${vid}...`);
+    setProgress('audioBar','audioProgress', Math.round((i/vids.length)*100));
+    try {
+      const blob = await fetchYTAudio(vid);
+      addToQueue(blob, vid, vid);
+      alog(`✓ ${vid}（${(blob.size/1024/1024).toFixed(1)} MB）已加入佇列`, 'ok');
+      ok++;
+    } catch(e) {
+      alog(`✗ ${vid}：${e.message}`, 'fail');
+      fail++;
+    }
+  }
+
+  setProgress('audioBar','audioProgress', 0);
+  document.getElementById('btnGetAudio').disabled = false;
+
+  if (ok) {
+    setMsg('audioStatus','success',
+      `✓ ${ok} 個音訊已加入佇列${fail ? `，${fail} 個失敗` : ''}，可按「▶ 開始轉錄」`);
+  } else {
+    // 全部失敗 → 提供手動下載連結
+    const vidList = vids.map(v =>
+      `<a href="https://cobalt.tools" target="_blank" style="color:#ff9999">cobalt.tools</a>`).slice(0,1);
+    setMsg('audioStatus','error',
+      `❌ 自動下載失敗（Cobalt 節點暫時無法使用）<br>` +
+      `<b>請用以下任一方式手動下載 MP3，再拖放到下方區域：</b><br>` +
+      `① <a href="https://cobalt.tools" target="_blank" style="color:#ff9999">cobalt.tools</a>（貼上網址 → 下載 MP3）<br>` +
+      `② <a href="https://yt1s.com" target="_blank" style="color:#ff9999">yt1s.com</a>（貼上網址 → mp3）<br>` +
+      `③ 安裝 <code>yt-dlp</code>，執行：<code>yt-dlp -x --audio-format mp3 "網址"</code>`);
+  }
+}
+
+// ─── 策略零：NAS 自架後端（用戶自己的 Flask + yt-dlp，最可靠）────────────────
+function getNasUrl() {
+  return (localStorage.getItem('nasBackendUrl') || '').replace(/\/+$/, '');
+}
+
+async function testNasBackend() {
+  const base = getNasUrl();
+  const el = document.getElementById('nasStatus');
+  if (!base) { el.textContent = '⚠ 請先填入 NAS 後端 URL'; el.style.color = '#f8a'; return; }
+  el.textContent = '測試中...'; el.style.color = '#888';
+  try {
+    // 測試 /api/info 端點（有 CORS 設定）
+    const r = await fetch(`${base}/api/info`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://www.youtube.com/watch?v=test' }),
+      signal: AbortSignal.timeout(10000),
+    });
+    // 400 = 網址無效但 API 有回應 → 連線正常
+    if (r.ok || r.status === 400) {
+      el.textContent = `✓ NAS 連線成功，API 正常`;
+      el.style.color = '#5cba5c';
+    } else {
+      el.textContent = `⚠ HTTP ${r.status}（CORS 可能未設定）`;
+      el.style.color = '#f8a';
+    }
+  } catch(e) {
+    el.textContent = `✗ 無法連線：${e.message}`;
+    el.style.color = '#f66';
+  }
+}
+
+async function fetchYTAudioViaNAS(vid) {
+  const base = getNasUrl();
+  if (!base) throw new Error('未設定 NAS 後端 URL');
+
+  const ytUrl = `https://www.youtube.com/watch?v=${vid}`;
+  alog(`[NAS] POST ${base}/api/download ...（yt-dlp 轉換中，請稍候）`, 'run');
+
+  // 精確 API：POST /ytmp3/api/download → 直接回傳 MP3 (audio/mpeg)
+  const r = await fetch(`${base}/api/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: ytUrl }),
+    signal: AbortSignal.timeout(300000), // 最長 5 分鐘（長影片需要時間）
+  });
+
+  if (!r.ok) {
+    let errMsg = `HTTP ${r.status}`;
+    try { const d = await r.json(); errMsg = d.error || errMsg; } catch(_) {}
+    throw new Error(errMsg);
+  }
+
+  // 串流讀取（顯示進度）
+  const cl = r.headers.get('Content-Length');
+  const reader = r.body.getReader();
+  const chunks = []; let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); received += value.length;
+    if (cl) setProgress('audioBar', 'audioProgress', Math.round((received / +cl) * 90));
+  }
+
+  const blob = new Blob(chunks, { type: 'audio/mpeg' });
+  if (blob.size < 10000) throw new Error(`下載內容過小（${blob.size}B），可能轉換失敗`);
+  alog(`✓ [NAS] 下載完成：${(blob.size/1024/1024).toFixed(1)} MB (MP3 192kbps)`, 'ok');
+  return blob;
+}
+
+// ─── 策略一：Invidious API（最可靠，不需 CORS proxy，伺服器端處理 n-parameter）───
+async function fetchYTAudioViaInvidious(vid) {
+  alog('⏳ [Invidious] 嘗試取得串流資訊...', 'run');
+
+  for (const node of INVIDIOUS_NODES) {
+    try {
+      alog(`  嘗試 ${node}...`, 'info');
+      const apiUrl = `${node}/api/v1/videos/${vid}?fields=adaptiveFormats,title`;
+      const r = await fetch(apiUrl, { signal: AbortSignal.timeout(12000) });
+      if (!r.ok) { alog(`  HTTP ${r.status}，跳過`, 'fail'); continue; }
+
+      const data = await r.json();
+      const audioFmts = (data.adaptiveFormats || [])
+        .filter(f => f.type?.startsWith('audio/') && f.url)
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+      if (!audioFmts.length) { alog(`  無音訊格式，跳過`, 'fail'); continue; }
+
+      const best = audioFmts[0];
+      const mimeBase = best.type?.split(';')[0] || 'audio/webm';
+      const kbps = Math.round((best.bitrate || 0) / 1000);
+      alog(`✓ [Invidious] ${node} 找到音訊：${mimeBase} ${kbps}kbps`, 'ok');
+
+      // Invidious 回傳的 url 是 Invidious 代理 URL，已處理 n-parameter 解密
+      alog('⬇ 下載音訊中...', 'run');
+      const ar = await fetch(best.url, { signal: AbortSignal.timeout(300000) });
+      if (!ar.ok) { alog(`  串流下載 HTTP ${ar.status}，跳過`, 'fail'); continue; }
+
+      const cl = ar.headers.get('Content-Length') || best.contentLength;
+      const reader = ar.body.getReader();
+      const chunks = []; let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); received += value.length;
+        if (cl) setProgress('audioBar', 'audioProgress', Math.round((received / +cl) * 90));
+      }
+
+      const blob = new Blob(chunks, { type: mimeBase });
+      if (blob.size < 10000) { alog(`  內容過小（${blob.size}B），跳過`, 'fail'); continue; }
+
+      alog(`✓ 音訊下載完成：${(blob.size/1024/1024).toFixed(1)} MB`, 'ok');
+      return { blob, ext: mimeBase.includes('mp4') ? 'mp4' : 'webm' };
+
+    } catch(e) { alog(`  失敗：${e.message.substring(0,60)}`, 'fail'); }
+  }
+  throw new Error('所有 Invidious 節點失敗');
+}
+
+// ─── 策略二：直接從 YouTube 頁面解析串流（透過 CORS proxy）──────────────────
+async function fetchYTAudioDirect(vid) {
+  alog('⏳ [直接解析] 嘗試取得 YouTube 頁面...', 'run');
+
+  const pageUrl = `https://www.youtube.com/watch?v=${vid}&hl=en&gl=US`;
+  let html = '';
+  for (const proxyFn of PAGE_PROXIES) {
+    try {
+      const r = await fetch(proxyFn(pageUrl), { signal: AbortSignal.timeout(20000) });
+      if (r.ok) { html = await r.text(); alog('  ✓ 頁面取得成功', 'ok'); break; }
+    } catch(e) { alog(`  Proxy 失敗：${e.message.substring(0,50)}`, 'fail'); }
+  }
+  if (!html) throw new Error('所有 Proxy 皆無法取得 YouTube 頁面');
+
+  const keyIdx = html.indexOf('ytInitialPlayerResponse');
+  if (keyIdx < 0) throw new Error('頁面中找不到 ytInitialPlayerResponse');
+  const start = html.indexOf('{', keyIdx);
+  if (start < 0) throw new Error('找不到 JSON 起始點');
+
+  let depth = 0, inStr = false, esc = false, i = start;
+  for (; i < html.length; i++) {
+    const c = html[i];
+    if (esc)           { esc = false; continue; }
+    if (c === '\\' && inStr) { esc = true; continue; }
+    if (c === '"')     { inStr = !inStr; continue; }
+    if (!inStr) {
+      if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) { i++; break; } }
+    }
+  }
+
+  let playerResp;
+  try { playerResp = JSON.parse(html.slice(start, i)); }
+  catch(e) { throw new Error(`JSON 解析失敗：${e.message}`); }
+
+  const status = playerResp?.playabilityStatus?.status;
+  if (status && status !== 'OK') throw new Error(`影片無法播放：${playerResp?.playabilityStatus?.reason || status}`);
+
+  const allFmts = [
+    ...(playerResp?.streamingData?.adaptiveFormats || []),
+    ...(playerResp?.streamingData?.formats || []),
+  ];
+  const audioFmts = allFmts
+    .filter(f => f.mimeType?.startsWith('audio/') && f.url)
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+  if (!audioFmts.length) throw new Error('頁面中找不到可用音訊串流（可能受保護）');
+
+  const best = audioFmts[0];
+  const mimeBase = (best.mimeType || 'audio/webm').split(';')[0];
+  alog(`✓ [直接] 找到音訊：${mimeBase} ${Math.round((best.bitrate||0)/1000)}kbps`, 'ok');
+
+  alog('⬇ 下載音訊中...', 'run');
+  const ar = await fetch(best.url, { signal: AbortSignal.timeout(300000) });
+  if (!ar.ok) throw new Error(`串流下載失敗：HTTP ${ar.status}`);
+
+  const cl = ar.headers.get('Content-Length') || best.contentLength;
+  const reader = ar.body.getReader();
+  const chunks = []; let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); received += value.length;
+    if (cl) setProgress('audioBar', 'audioProgress', Math.round((received / +cl) * 90));
+  }
+
+  const blob = new Blob(chunks, { type: mimeBase });
+  if (blob.size < 10000) throw new Error(`下載內容過小（${blob.size} bytes）`);
+  alog(`✓ 音訊下載完成：${(blob.size/1024/1024).toFixed(1)} MB`, 'ok');
+  return { blob, ext: mimeBase.includes('mp4') ? 'mp4' : 'webm' };
+}
+
+// ─── 策略二：Cobalt API 備援 ───────────────────────────────────────────────────
+async function fetchYTAudioCobalt(vid) {
+  const ytUrl = `https://www.youtube.com/watch?v=${vid}`;
+  let lastErr = '';
+
+  for (const inst of COBALT_INSTANCES) {
+    try {
+      alog(`[Cobalt] 嘗試 ${inst.base}...`, 'run');
+      const body = inst.fmt === 'new'
+        ? { url: ytUrl, downloadMode: 'audio', audioFormat: 'mp3', filenameStyle: 'basic' }
+        : { url: ytUrl, vCodec: 'none', aFormat: 'mp3', isAudioOnly: true };
+
+      const resp = await fetch(inst.base + '/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(18000),
+      });
+      if (!resp.ok) { lastErr = `HTTP ${resp.status}`; continue; }
+      const ct = resp.headers.get('content-type') || '';
+      if (!ct.includes('json')) { lastErr = '非 JSON 回應'; continue; }
+
+      const data = await resp.json();
+      const audioUrl = data.url || data.audio || data.download;
+      if (!audioUrl) { lastErr = `無 url 欄位（status=${data.status}）`; continue; }
+
+      alog('⬇ [Cobalt] 下載音訊中...', 'run');
+      const ar = await fetch(audioUrl, { signal: AbortSignal.timeout(180000) });
+      if (!ar.ok) { lastErr = `音訊下載 HTTP ${ar.status}`; continue; }
+
+      const cl = ar.headers.get('Content-Length');
+      const reader = ar.body.getReader();
+      const chunks = []; let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); received += value.length;
+        if (cl) setProgress('audioBar', 'audioProgress', Math.round((received / +cl) * 90));
+      }
+      const blob = new Blob(chunks, { type: 'audio/mp3' });
+      if (blob.size < 10000) { lastErr = `內容過小（${blob.size} bytes）`; continue; }
+      return { blob, ext: 'mp3' };
+
+    } catch(e) { lastErr = e.message; alog(`  失敗：${e.message.substring(0,60)}`, 'fail'); }
+  }
+  throw new Error(`Cobalt 所有節點失敗（${lastErr}）`);
+}
+
+// ─── 主要入口：NAS → Invidious → 直接解析 → Cobalt ──────────────────────────
+async function fetchYTAudio(vid) {
+  // 策略零：NAS 自架後端（用戶自己的 yt-dlp，最可靠）
+  if (getNasUrl()) {
+    try {
+      return await fetchYTAudioViaNAS(vid);
+    } catch(e) {
+      alog(`⚠ NAS 後端失敗：${e.message}`, 'fail');
+      alog('改用公開服務...', 'run');
+    }
+  }
+
+  // 策略一：Invidious API
+  try {
+    const { blob } = await fetchYTAudioViaInvidious(vid);
+    return blob;
+  } catch(e) {
+    alog(`⚠ Invidious 失敗：${e.message}`, 'fail');
+  }
+
+  // 策略二：直接解析 YouTube 頁面
+  try {
+    const { blob } = await fetchYTAudioDirect(vid);
+    return blob;
+  } catch(e) {
+    alog(`⚠ 直接解析失敗：${e.message}`, 'fail');
+  }
+
+  // 策略三：Cobalt API
+  try {
+    const { blob } = await fetchYTAudioCobalt(vid);
+    return blob;
+  } catch(e) {
+    alog(`⚠ Cobalt 失敗：${e.message}`, 'fail');
+    throw new Error('所有下載方式皆失敗，請手動上傳音訊檔');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WAV 工具：AudioBuffer → WAV Blob（16kHz 單聲道，適合 Whisper）
+// ─────────────────────────────────────────────────────────────────────────────
+function audioBufferToWAV(buffer) {
+  const numCh = 1; // mono
+  const sampleRate = buffer.sampleRate;
+  const samples = buffer.getChannelData(0); // first channel
+  const byteLen = samples.length * 2;
+  const ab = new ArrayBuffer(44 + byteLen);
+  const view = new DataView(ab);
+
+  function writeStr(off, str) { for (let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); }
+  writeStr(0,'RIFF');
+  view.setUint32(4, 36+byteLen, true);
+  writeStr(8,'WAVE');
+  writeStr(12,'fmt ');
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,numCh,true);
+  view.setUint32(24,sampleRate,true);
+  view.setUint32(28,sampleRate*numCh*2,true);
+  view.setUint16(32,numCh*2,true);
+  view.setUint16(34,16,true);
+  writeStr(36,'data');
+  view.setUint32(40,byteLen,true);
+  let off=44;
+  for (let i=0;i<samples.length;i++) {
+    const s = Math.max(-1,Math.min(1,samples[i]));
+    view.setInt16(off, s<0 ? s*0x8000 : s*0x7FFF, true);
+    off+=2;
+  }
+  return new Blob([ab], {type:'audio/wav'});
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 呼叫 Whisper API
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Whisper 轉錄（支援 OpenAI / Groq 雙服務）
+// ─────────────────────────────────────────────────────────────────────────────
+const OPENAI_MODELS = [
+  { id: 'gpt-4o-mini-transcribe', fmt: 'json',        hasSegs: false },
+  { id: 'gpt-4o-transcribe',      fmt: 'json',        hasSegs: false },
+  { id: 'whisper-1',              fmt: 'verbose_json', hasSegs: true  },
+];
+const GROQ_MODELS = [
+  { id: 'whisper-large-v3-turbo',      fmt: 'verbose_json', hasSegs: true },
+  { id: 'whisper-large-v3',            fmt: 'verbose_json', hasSegs: true },
+  { id: 'distil-whisper-large-v3-en',  fmt: 'verbose_json', hasSegs: true },
+];
+
+async function callWhisper(blob, apiKey, lang, filename='audio.wav') {
+  if (currentSvc === 'groq') {
+    return callGroqWhisper(blob, apiKey, lang, filename);
+  }
+  return callOpenAIWhisper(blob, apiKey, lang, filename);
+}
+
+async function callOpenAIWhisper(blob, apiKey, lang, filename) {
+  const selectedId = document.getElementById('whisperModel').value;
+  const order = [
+    ...OPENAI_MODELS.filter(m => m.id === selectedId),
+    ...OPENAI_MODELS.filter(m => m.id !== selectedId),
+  ];
+  let lastErr = '';
+  for (const model of order) {
+    try {
+      addLog(`嘗試 OpenAI ${model.id}...`, 'run');
+      const data = await doTranscribeRequest(
+        'https://api.openai.com/v1/audio/transcriptions',
+        apiKey, blob, filename, model, lang);
+      addLog(`✓ ${model.id} 成功`, 'ok');
+      return normalizeResult(data);
+    } catch(e) {
+      addLog(`✗ ${model.id}：${e.message.substring(0,100)}`, 'fail');
+      lastErr = e.message;
+    }
+  }
+  throw new Error(
+    `OpenAI 所有轉錄模型均無權限。\n` +
+    `建議改用上方「Groq（免費）」標籤，或至 platform.openai.com 啟用 Audio 模型。\n` +
+    `錯誤：${lastErr}`
+  );
+}
+
+async function callGroqWhisper(blob, apiKey, lang, filename) {
+  const selectedId = document.getElementById('groqModel').value;
+  const order = [
+    ...GROQ_MODELS.filter(m => m.id === selectedId),
+    ...GROQ_MODELS.filter(m => m.id !== selectedId),
+  ];
+  let lastErr = '';
+  for (const model of order) {
+    try {
+      addLog(`嘗試 Groq ${model.id}...`, 'run');
+      const data = await doTranscribeRequest(
+        'https://api.groq.com/openai/v1/audio/transcriptions',
+        apiKey, blob, filename, model, lang);
+      addLog(`✓ Groq ${model.id} 成功`, 'ok');
+      return normalizeResult(data);
+    } catch(e) {
+      addLog(`✗ Groq ${model.id}：${e.message.substring(0,100)}`, 'fail');
+      lastErr = e.message;
+    }
+  }
+  throw new Error(`Groq 轉錄失敗：${lastErr}\n請確認 Groq API Key 正確（console.groq.com → API Keys）`);
+}
+
+async function doTranscribeRequest(endpoint, apiKey, blob, filename, model, lang) {
+  const fd = new FormData();
+  fd.append('file', blob, filename);
+  fd.append('model', model.id);
+  fd.append('response_format', model.fmt);
+  if (model.hasSegs) fd.append('timestamp_granularities[]', 'segment');
+  if (lang) fd.append('language', lang);
+
+  // 繁體中文提示：讓 Whisper 傾向輸出繁體字
+  const outputLang = document.getElementById('outputLang').value;
+  if (outputLang === '繁體中文') {
+    fd.append('prompt', '以下是繁體中文語音。請使用繁體中文字輸出，例如：台灣、軟體、資料、網路、繁體。');
+  }
+
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+    body: fd,
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(()=>({error:{message:resp.statusText}}));
+    throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+function normalizeResult(data) {
+  if (!data.segments && data.text) {
+    data.segments = [{ start: 0, end: 9999, text: data.text }];
+    data._noTimestamps = true;
+  }
+  return data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 分段處理（超過 25MB 時使用 Web Audio API 切片）
+// ─────────────────────────────────────────────────────────────────────────────
+async function transcribeWithChunking(blob, apiKey, lang, onProgress) {
+  const CHUNK_SECS = 8 * 60; // 8 minutes per chunk → ~15MB WAV at 16kHz mono
+  const MAX_BYTES = 24 * 1024 * 1024; // 24MB safety limit
+
+  // Check if chunking is needed
+  if (blob.size <= MAX_BYTES) {
+    addLog('檔案在 25MB 以內，直接送 Whisper', 'info');
+    onProgress(20);
+    const result = await callWhisper(blob, apiKey, lang, 'audio.mp3');
+    onProgress(80);
+    return result;
+  }
+
+  addLog(`檔案 ${(blob.size/1024/1024).toFixed(1)} MB，啟動分段處理...`, 'run');
+
+  // Decode audio
+  const arrayBuffer = await blob.arrayBuffer();
+  const actx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  addLog('解碼音訊中...', 'run');
+  const audioBuffer = await actx.decodeAudioData(arrayBuffer);
+  await actx.close();
+
+  const totalSec = audioBuffer.duration;
+  const numChunks = Math.ceil(totalSec / CHUNK_SECS);
+  addLog(`總時長 ${Math.round(totalSec)}s，分成 ${numChunks} 段處理`, 'info');
+
+  // Downsample to 16kHz mono manually
+  const srcRate = audioBuffer.sampleRate;
+  const srcData = audioBuffer.getChannelData(0);
+
+  // Resample to 16kHz using linear interpolation
+  const targetRate = 16000;
+  const ratio = srcRate / targetRate;
+  const targetLen = Math.floor(srcData.length / ratio);
+  const mono16k = new Float32Array(targetLen);
+  for (let i = 0; i < targetLen; i++) {
+    const srcIdx = i * ratio;
+    const lo = Math.floor(srcIdx), hi = Math.min(lo+1, srcData.length-1);
+    mono16k[i] = srcData[lo] + (srcData[hi]-srcData[lo])*(srcIdx-lo);
+  }
+
+  const samplesPerChunk = Math.floor(CHUNK_SECS * targetRate);
+  const allSegments = [];
+  let rawText = '';
+  let timeOffset = 0;
+
+  for (let ci = 0; ci < numChunks; ci++) {
+    const start = ci * samplesPerChunk;
+    const end   = Math.min(start + samplesPerChunk, mono16k.length);
+    const chunk = mono16k.slice(start, end);
+
+    // Build a minimal AudioBuffer wrapper for WAV encoding
+    const fakeBuffer = {
+      sampleRate: targetRate,
+      getChannelData: () => chunk,
+    };
+    const wavBlob = audioBufferToWAV(fakeBuffer);
+    addLog(`分段 ${ci+1}/${numChunks}（${(wavBlob.size/1024/1024).toFixed(1)} MB）送 Whisper...`, 'run');
+
+    const result = await callWhisper(wavBlob, apiKey, lang, `chunk_${ci}.wav`);
+    const segs = result.segments || [];
+    segs.forEach(s => {
+      allSegments.push({
+        start: s.start + timeOffset,
+        end:   s.end   + timeOffset,
+        text:  s.text.trim(),
+      });
+    });
+    rawText += (result.text || '') + ' ';
+    timeOffset += (end - start) / targetRate;
+
+    onProgress(Math.round(20 + ((ci+1)/numChunks)*60));
+    addLog(`✓ 分段 ${ci+1} 轉錄完成（${segs.length} 段）`, 'ok');
+  }
+
+  return { segments: allSegments, text: rawText.trim() };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 呼叫 GPT 整理標點
+// ─────────────────────────────────────────────────────────────────────────────
+async function callGPT(text, apiKey, outputLang) {
+  const modelVal = getGPTModel();
+  if (!modelVal) return text;
+
+  const lang        = outputLang || '繁體中文';
+  const isGroqModel = modelVal.startsWith('groq:');
+  const modelId     = isGroqModel ? modelVal.slice(5) : modelVal;
+  const endpoint    = isGroqModel
+    ? 'https://api.groq.com/openai/v1/chat/completions'
+    : 'https://api.openai.com/v1/chat/completions';
+  const useKey = isGroqModel
+    ? document.getElementById('groqKey').value.trim()
+    : apiKey;
+  if (!useKey) throw new Error('請填入對應的 API Key');
+
+  const sysPrompt =
+    `你是繁簡轉換與文章整理助手。` +
+    `請將以下文字：1) 全部轉換為${lang}（包含用詞與字形，例如：台灣、軟體、資料、網路）；` +
+    `2) 加上適當的${lang}標點符號；3) 適切斷行與分段，讓文章易於閱讀。` +
+    `只輸出整理後的${lang}文章，不要任何說明、前言或標題。`;
+
+  const CHUNK = 3000;
+  const parts = [];
+  for (let i = 0; i < text.length; i += CHUNK) parts.push(text.slice(i, i + CHUNK));
+
+  const results = [];
+  for (let i = 0; i < parts.length; i++) {
+    addLog(`${isGroqModel ? 'Groq LLaMA' : 'GPT'} 整理第 ${i+1}/${parts.length} 段...`, 'run');
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${useKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          { role: 'system', content: sysPrompt },
+          { role: 'user',   content: parts[i] },
+        ],
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!resp.ok) {
+      const e = await resp.json().catch(() => ({ error: { message: resp.statusText } }));
+      throw new Error(e?.error?.message || `HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    results.push(data.choices[0].message.content.trim());
+  }
+  return results.join('\n\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 建立 SRT
+// ─────────────────────────────────────────────────────────────────────────────
+function buildSRT(segments, maxSegSec) {
+  let items = segments.filter(s => s.text.trim());
+  // Merge short segments or split long ones
+  if (maxSegSec > 0) {
+    const merged = [];
+    for (const s of items) {
+      const dur = s.end - s.start;
+      if (dur > maxSegSec) {
+        // Split by words/chars
+        const words = s.text.trim().split(/\s+/);
+        const subCount = Math.ceil(dur / maxSegSec);
+        const subDur = dur / subCount;
+        const wordsPerSub = Math.ceil(words.length / subCount);
+        for (let i=0; i<subCount; i++) {
+          merged.push({
+            start: s.start + i*subDur,
+            end:   s.start + (i+1)*subDur,
+            text:  words.slice(i*wordsPerSub, (i+1)*wordsPerSub).join(' ') || s.text,
+          });
+        }
+      } else { merged.push(s); }
+    }
+    items = merged;
+  }
+  return items.map((s,i) =>
+    `${i+1}\n${toSRTTime(s.start)} --> ${toSRTTime(s.end)}\n${s.text}`
+  ).join('\n\n') + '\n';
+}
+
+function toSRTTime(s) {
+  const h=Math.floor(s/3600), m=Math.floor(s%3600/60), sc=Math.floor(s%60);
+  const ms=Math.round((s-Math.floor(s))*1000);
+  return `${p2(h)}:${p2(m)}:${p2(sc)},${p3(ms)}`;
+}
+const p2=n=>String(n).padStart(2,'0');
+const p3=n=>String(n).padStart(3,'0');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 主流程：逐一處理佇列
+// ─────────────────────────────────────────────────────────────────────────────
+async function startTranscribe() {
+  let apiKey;
+  try { apiKey = getApiKey(); } catch(e) { alert(e.message); return; }
+
+  const ready = audioQueue.filter(it => it.status === 'ready' || it.status === 'error');
+  if (!ready.length) {
+    setMsg('transcribeStatus','error','佇列中沒有待轉錄的音訊，請先取得或上傳音訊'); return;
+  }
+
+  document.getElementById('btnTranscribe').disabled = true;
+  document.getElementById('resultSection').style.display = 'none';
+  document.getElementById('mainLog').innerHTML = '';
+  document.getElementById('mainLog').style.display = 'block';
+  hideMsg('transcribeStatus');
+
+  const lang      = document.getElementById('whisperLang').value;
+  const outputLang= document.getElementById('outputLang').value;
+  const doGPT     = document.getElementById('doGPT').checked;
+  const doChunk   = document.getElementById('doChunk').checked;
+  const maxSegSec = parseInt(document.getElementById('maxSegSec').value);
+  const gptKey    = getGPTKey();
+  const gptModel  = getGPTModel();
+
+  let doneCount = 0, failCount = 0;
+  // Accumulate all results for combined display
+  let allSRT = '', allRaw = '', allGPT = '';
+
+  for (let i = 0; i < ready.length; i++) {
+    const item = ready[i];
+    setQueueStatus(item.id, 'transcribing');
+    setMsg('transcribeStatus','info',
+      `<span class="spinner"></span>[${i+1}/${ready.length}] 轉錄「${item.name}」...`);
+    setProgress('transcribeBar','transcribeProgress',
+      Math.round((i / ready.length) * 100));
+    addLog(`\n=== [${i+1}/${ready.length}] ${item.name} ===`, 'info');
+
+    try {
+      // ① Whisper
+      addLog('送出 Whisper 轉錄...', 'run');
+      let wResult;
+      if (doChunk) {
+        wResult = await transcribeWithChunking(item.blob, apiKey, lang, pct => {
+          setProgress('transcribeBar','transcribeProgress',
+            Math.round((i/ready.length)*100 + pct/ready.length));
+        });
+      } else {
+        wResult = await callWhisper(item.blob, apiKey, lang, item.name+'.mp3');
+      }
+      const raw  = wResult.text || '';
+      const segs = wResult.segments || [];
+      const srt  = buildSRT(segs, maxSegSec);
+      addLog(`✓ Whisper：${raw.length} 字，${segs.length} 段`, 'ok');
+
+      // ② GPT
+      let gpt = raw;
+      if (doGPT && raw.trim() && gptModel && gptKey) {
+        addLog('GPT 整理中...', 'run');
+        gpt = await callGPT(raw, gptKey, outputLang);
+        addLog(`✓ GPT：${gpt.length} 字`, 'ok');
+      }
+
+      // 自動下載單一結果
+      autoDownload(srt,  item.name + '.srt');
+      autoDownload(gpt || raw, item.name + '.txt');
+      addLog(`✓ 已自動下載 ${item.name}.srt / .txt`, 'ok');
+
+      // 累積到總覽
+      allSRT += `; ===== ${item.name} =====\n\n` + srt + '\n';
+      allRaw += `===== ${item.name} =====\n\n` + raw + '\n\n';
+      allGPT += `===== ${item.name} =====\n\n` + gpt + '\n\n';
+
+      // 更新最後一筆結果供預覽
+      srtResult = srt; rawResult = raw; gptResult = gpt;
+
+      setQueueStatus(item.id, 'done');
+      doneCount++;
+    } catch(e) {
+      addLog(`✗ ${item.name} 失敗：${e.message}`, 'fail');
+      setQueueStatus(item.id, 'error');
+      failCount++;
+    }
+  }
+
+  setProgress('transcribeBar','transcribeProgress', 100);
+
+  if (doneCount) {
+    // 若超過 1 個，顯示合併結果供預覽
+    if (ready.length > 1) {
+      srtResult = allSRT; rawResult = allRaw; gptResult = allGPT;
+    }
+    curTab = 'gpt';
+    updateTab();
+    document.getElementById('resultSection').style.display = 'block';
+    document.getElementById('resultSection').scrollIntoView({behavior:'smooth'});
+    setMsg('transcribeStatus','success',
+      `✓ 完成 ${doneCount} 個${failCount ? `，${failCount} 個失敗` : ''}，各檔案已自動下載`);
+    addLog('=== 全部完成 ===', 'ok');
+  } else {
+    setMsg('transcribeStatus','error', `❌ 全部 ${failCount} 個轉錄失敗`);
+  }
+
+  document.getElementById('btnTranscribe').disabled = false;
+  setTimeout(() => setProgress('transcribeBar','transcribeProgress', 0), 2000);
+}
+
+function autoDownload(content, filename) {
+  if (!content) return;
+  const blob = new Blob(['﻿'+content], {type:'text/plain;charset=utf-8'});
+  const a = Object.assign(document.createElement('a'),
+    { href: URL.createObjectURL(blob), download: filename });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI 切換
+// ─────────────────────────────────────────────────────────────────────────────
+function switchTab(tab) { curTab = tab; updateTab(); }
+function updateTab() {
+  document.querySelectorAll('.tab').forEach((b,i) =>
+    b.classList.toggle('active',
+      (i===0&&curTab==='srt')||(i===1&&curTab==='gpt')||(i===2&&curTab==='raw')));
+  const content = curTab==='srt' ? srtResult : curTab==='gpt' ? gptResult : rawResult;
+  document.getElementById('resultArea').value = content;
+  document.getElementById('charCount').textContent =
+    content ? `${content.length.toLocaleString()} 字元` : '';
+}
+
+function dlCur(ext) {
+  let content, suffix;
+  if (ext === 'srt') {
+    content = srtResult;
+    suffix  = '.srt';
+  } else {
+    // TXT 下載：優先 GPT 整理版，其次原始逐字稿，永遠用 .txt
+    content = gptResult || rawResult;
+    suffix  = '.txt';
+  }
+  // 優先用影片 ID 做檔名，避免中文字形或亂碼問題
+  const base = 'transcript';
+  const blob = new Blob(['﻿'+content], {type:'text/plain;charset=utf-8'});
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `${base}${suffix}`,
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+async function copyResult() {
+  const text = document.getElementById('resultArea').value;
+  await navigator.clipboard.writeText(text).catch(()=>{});
+  const btn = event.target;
+  btn.textContent = '✓ 已複製';
+  setTimeout(() => btn.textContent = '📋 複製', 1500);
+}
+
+function clearQueue() {
+  audioQueue = [];
+  renderQueue();
+  hideMsg('audioStatus');
+}
+
+function clearAll() {
+  audioQueue = [];
+  srtResult = ''; rawResult = ''; gptResult = '';
+  document.getElementById('ytUrls').value = '';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('resultSection').style.display = 'none';
+  document.getElementById('mainLog').innerHTML = '';
+  document.getElementById('mainLog').style.display = 'none';
+  ['audioStatus','transcribeStatus'].forEach(hideMsg);
+  setProgress('audioBar','audioProgress',0);
+  setProgress('transcribeBar','transcribeProgress',0);
+  renderQueue();
+}
+
+// Enter 鍵不觸發（textarea 需換行）
+document.getElementById('ytUrls').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.ctrlKey) getAudioFromUrls();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enter 鍵觸發
+// ─────────────────────────────────────────────────────────────────────────────
+document.getElementById('ytUrls').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey) { /* 允許換行 */ }
+});
+document.getElementById('doGPT').addEventListener('change', updateGroqGPTRow);
+document.getElementById('gptModelGroq').addEventListener('change', updateGroqGPTRow);
+
+function onModelChange() {
+  const m = document.getElementById('whisperModel').value;
+  const isNew = m.startsWith('gpt-4o');
+  const hint = document.getElementById('modelHint');
+  if (isNew) {
+    hint.textContent = '⚠ 新版模型不回傳時間軸，SRT 檔將無精確時間戳記，建議用 TXT 下載。';
+    hint.style.display = 'block';
+  } else {
+    hint.style.display = 'none';
+  }
+}
+</script>
+</body>
+</html>
